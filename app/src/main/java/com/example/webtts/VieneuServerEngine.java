@@ -35,6 +35,12 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
     /** Thread tai tuan tu, khong de server nghe CPU. */
     private final ExecutorService vnExec =
             Executors.newSingleThreadExecutor();
+    /** Chi 1 HTTP bay mot luc (server CPU 1 luong; qua tai la 429). */
+    private final java.util.concurrent.atomic.AtomicBoolean inflight =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** Cho nghi sau loi de khong de chet server (ms theo index). */
+    private final Map<Integer, Long> errCool = new ConcurrentHashMap<>();
+    private static final long ERR_COOL_MS = 30000;
 
     public VieneuServerEngine(Context ctx, Listener listener) {
         super(ctx, listener, "vieneu_cache");
@@ -126,6 +132,13 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
             queued.remove(gen + ":" + index);
             return;
         }
+        // Vua loi gan day: nghi cho server hoi, khong de them.
+        Long et = errCool.get(index);
+        if (et != null
+                && android.os.SystemClock.elapsedRealtime() - et < ERR_COOL_MS) {
+            queued.remove(gen + ":" + index);
+            return;
+        }
         try {
             SubtitleCue cue = s.get(index);
             java.io.File f = pathFor(index, cue.text);
@@ -145,7 +158,17 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                     f.delete();
                 }
             }
-            fetchAudio(index, gen, cue, f);
+            // Server 1 luong: dang co request khac thi bo qua, tick sau thu lai.
+            if (!inflight.compareAndSet(false, true)) {
+                queued.remove(gen + ":" + index);
+                return;
+            }
+            try {
+                fetchAudio(index, gen, cue, f);
+            } catch (Exception e) {
+                inflight.set(false);
+                throw e;
+            }
         } catch (Exception e) {
             queued.remove(gen + ":" + index);
             lastError = e.getMessage();
@@ -183,19 +206,23 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                     rawDur.put(index, d);
                     readyPath.put(index, f.getAbsolutePath());
                     lastError = null;
+                    errCool.remove(index);
                     if (listener != null) {
                         listener.onReady(index, readyPath.size(),
                                 Math.min(subCount(), PRELOAD_VN + 1));
                     }
                 } finally {
+                    inflight.set(false);
                     queued.remove(gen + ":" + index);
                 }
             }
             @Override public void onError(String msg) {
                 try {
                     lastError = msg;
+                    errCool.put(index, android.os.SystemClock.elapsedRealtime());
                     if (listener != null) listener.onError(index, msg);
                 } finally {
+                    inflight.set(false);
                     queued.remove(gen + ":" + index);
                 }
             }
