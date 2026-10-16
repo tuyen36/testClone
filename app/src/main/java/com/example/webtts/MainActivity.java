@@ -90,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnVoiceNamMinh;
     private Button btnVoiceVieneu;
     private Button btnVieneuServer;
+    private Button btnVieneuPreload;
     private Button btnClearCache;
     private int voice = TtsPlaybackService.VOICE_GOOGLE;
     private SeekBar seekPos;
@@ -148,6 +149,7 @@ public class MainActivity extends AppCompatActivity {
         btnVoiceNamMinh = findViewById(R.id.btnVoiceNamMinh);
         btnVoiceVieneu = findViewById(R.id.btnVoiceVieneu);
         btnVieneuServer = findViewById(R.id.btnVieneuServer);
+        btnVieneuPreload = findViewById(R.id.btnVieneuPreload);
         btnClearCache = findViewById(R.id.btnClearCache);
         seekPos = findViewById(R.id.seekPos);
         seekRate = findViewById(R.id.seekRate);
@@ -237,6 +239,8 @@ public class MainActivity extends AppCompatActivity {
                 TtsPlaybackService.VOICE_NAMMINH));
         btnVoiceVieneu.setOnClickListener(v -> pickVieneuVoice());
         btnVieneuServer.setOnClickListener(v -> showVieneuServerDialog(false));
+        btnVieneuPreload.setOnClickListener(v -> showVieneuPreloadDialog());
+        refreshPreloadBtn();
         btnClearCache.setOnClickListener(v -> clearCacheUi());
 
         seekPos.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -1338,6 +1342,45 @@ public class MainActivity extends AppCompatActivity {
         toast("Giong Vieneu (PC): " + name);
     }
 
+    /** Nhap so cau preload Vieneu (1-30). */
+    private void showVieneuPreloadDialog() {
+        ensureService();
+        final EditText et = new EditText(this);
+        et.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        et.setHint("1 - 30 (mac dinh 10)");
+        int cur = getSharedPreferences("webtts", MODE_PRIVATE)
+                .getInt("preload_vn", 10);
+        et.setText(String.valueOf(cur));
+        new AlertDialog.Builder(this)
+                .setTitle("So cau preload Vieneu")
+                .setView(et)
+                .setPositiveButton("Luu", (d, w) -> {
+                    int n;
+                    try {
+                        n = Integer.parseInt(et.getText().toString().trim());
+                    } catch (Exception e) {
+                        toast("Nhap so 1-30.");
+                        return;
+                    }
+                    if (n < 1 || n > 30) {
+                        toast("Nhap so 1-30.");
+                        return;
+                    }
+                    TtsPlaybackService.setPreloadVn(n);
+                    refreshPreloadBtn();
+                    toast("Preload Vieneu: " + n + " cau.");
+                })
+                .setNegativeButton("Huy", null)
+                .show();
+    }
+
+    private void refreshPreloadBtn() {
+        if (btnVieneuPreload == null) return;
+        int n = getSharedPreferences("webtts", MODE_PRIVATE)
+                .getInt("preload_vn", 10);
+        btnVieneuPreload.setText("⚙  Preload Vieneu: " + n + " cau");
+    }
+
     /** Nhap dia chi server Vieneu + API key (neu co). */
     private void showVieneuServerDialog(final boolean thenPickVoice) {
         ensureService();
@@ -1683,6 +1726,7 @@ public class MainActivity extends AppCompatActivity {
         refreshPlayBtn();
         refreshVoiceUi();
         refreshCacheBtn();
+        refreshPreloadBtn();
         syncUi();
         refreshSavedList();
     }

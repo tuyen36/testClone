@@ -1,4 +1,4 @@
-package com.example.webtts;
+﻿package com.example.webtts;
 
 import android.content.Context;
 
@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
  * Engine giong Vieneu tren PC nha (Turbo 48kHz).
  *
  * Ke thua EdgeVoiceEngine de tai dung toan bo cache/preload/play/speed:
- * chi thay doi NGUON TAI — HTTP POST /v1/audio/speech thay vi
+ * chi thay doi NGUON TAI â€” HTTP POST /v1/audio/speech thay vi
  * WebSocket Edge. Moi cue: text + voice=ten_giong -> wav 24kHz.
  *
  * Luu y server: CPU chi phuc vu 1-2 dong thoi nen preload it (10 cau)
@@ -25,8 +25,11 @@ import java.util.concurrent.Executors;
  */
 public class VieneuServerEngine extends EdgeVoiceEngine {
 
-    /** Preload it hon Edge (server CPU nha yeu, tranh 429). */
+    /** Preload mac dinh (server CPU nha yeu, tranh 429). User doi duoc. */
     public static final int PRELOAD_VN = 10;
+    public static final int PRELOAD_VN_MIN = 1;
+    public static final int PRELOAD_VN_MAX = 30;
+    private volatile int preloadCount = PRELOAD_VN;
 
     private volatile String serverUrl = "";
     private volatile String apiKey = "";
@@ -45,6 +48,15 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
     public VieneuServerEngine(Context ctx, Listener listener) {
         super(ctx, listener, "vieneu_cache");
     }
+
+    /** So cau preload do user chon (mac dinh PRELOAD_VN). */
+    public void setPreloadCount(int n) {
+        if (n < PRELOAD_VN_MIN) n = PRELOAD_VN_MIN;
+        if (n > PRELOAD_VN_MAX) n = PRELOAD_VN_MAX;
+        preloadCount = n;
+    }
+
+    public int getPreloadCount() { return preloadCount; }
 
     public void setServerUrl(String url) {
         String u = VieneuVoiceClient.normBase(url == null ? "" : url);
@@ -111,7 +123,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
         List<SubtitleCue> s = subList();
         if (s.isEmpty() || index < 0) return;
         int gen = generation.get();
-        int end = Math.min(s.size(), index + PRELOAD_VN + 1);
+        int end = Math.min(s.size(), index + preloadCount + 1);
         for (int i = index; i < end; i++) {
             final int idx = i;
             String qk = gen + ":" + idx;
@@ -150,7 +162,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                     lastError = null;
                     if (listener != null) {
                         listener.onReady(index, readyPath.size(),
-                                Math.min(s.size(), PRELOAD_VN + 1));
+                                Math.min(s.size(), preloadCount + 1));
                     }
                     queued.remove(gen + ":" + index);
                     return;
@@ -213,7 +225,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                     errCool.remove(index);
                     if (listener != null) {
                         listener.onReady(index, readyPath.size(),
-                                Math.min(subCount(), PRELOAD_VN + 1));
+                                Math.min(subCount(), preloadCount + 1));
                     }
                 } finally {
                     inflight.set(false);

@@ -123,6 +123,8 @@ public class TtsPlaybackService extends Service
     private String vieneuVoiceName = "Clone";
     private String vieneuUrl = "";
     private String vieneuKey = "";
+    /** So cau preload Vieneu do user chon (mac dinh 10, 1-30). */
+    private int preloadVn = VieneuServerEngine.PRELOAD_VN;
 
     /** true = 1 trong 2 giong Edge online. */
     private static boolean isEdgeVoice(int v) {
@@ -295,6 +297,7 @@ public class TtsPlaybackService extends Service
         vn.setTtsVolume(ttsVol);
         vn.setServerUrl(vieneuUrl);
         vn.setApiKey(vieneuKey);
+        vn.setPreloadCount(preloadVn);
         vn.setServerVoice(vieneuVoiceName);
         handler.post(ticker);
     }
@@ -312,6 +315,13 @@ public class TtsPlaybackService extends Service
         if (vieneuUrl == null) vieneuUrl = "";
         vieneuKey = sp.getString("vieneu_key", "");
         if (vieneuKey == null) vieneuKey = "";
+        preloadVn = sp.getInt("preload_vn", VieneuServerEngine.PRELOAD_VN);
+        if (preloadVn < VieneuServerEngine.PRELOAD_VN_MIN) {
+            preloadVn = VieneuServerEngine.PRELOAD_VN_MIN;
+        }
+        if (preloadVn > VieneuServerEngine.PRELOAD_VN_MAX) {
+            preloadVn = VieneuServerEngine.PRELOAD_VN_MAX;
+        }
         totalLen = sp.getFloat("totalLen", 0f);
         filmId = sp.getString("curfilm_id", "");
         filmName = sp.getString("curfilm_name", "phim");
@@ -770,6 +780,36 @@ public class TtsPlaybackService extends Service
 
     public static String getVieneuKey() {
         return running != null ? running.vieneuKey : "";
+    }
+
+    /** So cau preload Vieneu hien tai. */
+    public static int getPreloadVn() {
+        if (running != null) return running.preloadVn;
+        return VieneuServerEngine.PRELOAD_VN;
+    }
+
+    /** Doi so cau preload Vieneu (1-30): luu prefs + ap ngay. */
+    public static void setPreloadVn(int n) {
+        if (n < VieneuServerEngine.PRELOAD_VN_MIN) {
+            n = VieneuServerEngine.PRELOAD_VN_MIN;
+        }
+        if (n > VieneuServerEngine.PRELOAD_VN_MAX) {
+            n = VieneuServerEngine.PRELOAD_VN_MAX;
+        }
+        if (running != null) {
+            running.preloadVn = n;
+            running.getSharedPreferences("webtts", MODE_PRIVATE)
+                    .edit().putInt("preload_vn", n).apply();
+            if (running.vn != null) {
+                running.vn.setPreloadCount(n);
+                if (running.voice == VOICE_VIENEUPC && running.playing) {
+                    int idx = SubtitleParser.findIndex(sharedSubs,
+                            running.position + running.offset);
+                    if (idx < 0) idx = 0;
+                    running.vn.preloadFrom(idx);
+                }
+            }
+        }
     }
 
     /** Doi API key server Vieneu (trong = khong dung key). */
