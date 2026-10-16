@@ -371,7 +371,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="⚙  Preload Vieneu: 10 cau"
+            android:text="⚙  Preload: 10 cau"
             android:textSize="13sp" />
 
         <Button
@@ -380,6 +380,14 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="🎙  Giong Google: mac dinh"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btnGgLive"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="▶  Google: Render truoc (co cache)"
             android:textSize="13sp" />
 
         <!-- Toc do -->

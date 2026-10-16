@@ -34,7 +34,8 @@ import java.util.Locale;
 /**
  * V1.7: Service doc sub CHAY NEN + nut noi dieu khien + 2 giong.
  *
- * - Giong GOOGLE (offline): TextToSpeech + SubtitleSpeaker nhu cu.
+ * - Giong GOOGLE (offline): GoogleFileEngine render truoc wav + preload,
+ *   chung cach chay voi Edge (mp3()).
  * - Giong HOAIMY Edge (online): EdgeVoiceEngine tai mp3 + preload 35 cau,
  *   do raw THAT bang MediaPlayer, speed = raw/target (port Python).
  * - MainActivity chi gui lenh (play/pause/seek/offset/rate/volume/voice) + sub.
@@ -86,6 +87,7 @@ public class TtsPlaybackService extends Service
         lastCueText = "...";
         sleepAtElapsed = 0;
         sleepLeftMs = 0;
+        if (gov != null) gov.resetIndex();
         if (speaker != null) speaker.resetIndex();
         if (edge != null) edge.stopPlayer();
         if (vn != null) vn.stopPlayer();
@@ -107,7 +109,10 @@ public class TtsPlaybackService extends Service
     // ----- instance -----
     private TextToSpeech tts;
     private SubtitleSpeaker speaker;
+    private GoogleFileEngine gov;
     private boolean ttsReady = false;
+    /** true = Google doc live truc tiep (khong cache); false = render truoc file. */
+    private boolean ggLive = false;
 
     /** 0 = Google offline, 1 = HoaiMy Edge online, 2 = NamMinh Edge online,
      *  3 = Vieneu Turbo tren PC nha (online LAN). */
@@ -135,14 +140,16 @@ public class TtsPlaybackService extends Service
         return v == VOICE_HOAIMY || v == VOICE_NAMMINH;
     }
 
-    /** true = giong chay bang file mp3/wav tai san (Edge hoac Vieneu PC). */
+    /** true = giong chay bang file mp3/wav tai san (Google file, Edge, Vieneu PC). */
     private static boolean isMp3Voice(int v) {
-        return isEdgeVoice(v) || v == VOICE_VIENEUPC;
+        return v == VOICE_GOOGLE || isEdgeVoice(v) || v == VOICE_VIENEUPC;
     }
 
-    /** Engine mp3 dang dung (Edge hoac Vieneu PC). */
+    /** Engine mp3 dang dung (Google file, Edge hoac Vieneu PC). */
     private EdgeVoiceEngine mp3() {
-        return (voice == VOICE_VIENEUPC && vn != null) ? vn : edge;
+        if (voice == VOICE_VIENEUPC && vn != null) return vn;
+        if (voice == VOICE_GOOGLE && gov != null) return gov;
+        return edge;
     }
 
     private boolean playing = false;
@@ -204,10 +211,12 @@ public class TtsPlaybackService extends Service
         }
     };
 
-    /** Day position cho engine dang chon (Google, Edge hoac Vieneu PC). */
+    /** Day position cho engine dang chon (Google live/file, Edge, Vieneu PC). */
     private void driveEngines() {
         EdgeVoiceEngine mp3 = mp3();
-        if (isMp3Voice(voice) && mp3 != null) {
+        if (voice == VOICE_GOOGLE && ggLive && ttsReady && speaker != null) {
+            speaker.onPosition(position);
+        } else if (isMp3Voice(voice) && mp3 != null) {
             int idx = SubtitleParser.findIndex(sharedSubs, position + offset);
             if (idx >= 0) {
                 SubtitleCue cue = sharedSubs.get(idx);
@@ -226,8 +235,8 @@ public class TtsPlaybackService extends Service
                     }
                 }
             }
-        } else if (ttsReady && speaker != null) {
-            speaker.onPosition(position);
+        } else if (ttsReady && gov != null) {
+            gov.resetIndex();
         }
     }
 
@@ -303,6 +312,28 @@ public class TtsPlaybackService extends Service
         vn.setApiKey(vieneuKey);
         vn.setPreloadCount(preloadVn);
         vn.setServerVoice(vieneuVoiceName);
+        gov = new GoogleFileEngine(this, new EdgeVoiceEngine.Listener() {
+            @Override public void onReady(int index, int cached, int total) {
+                handler.post(() -> updateNotif());
+            }
+            @Override public void onError(int index, String msg) {
+                handler.post(() -> updateNotif());
+            }
+            @Override public void onSpeakStart(int index) {
+                handler.post(() -> {
+                    if (index >= 0 && index < sharedSubs.size()) {
+                        lastCueText = sharedSubs.get(index).text;
+                        if (floatCue != null) floatCue.setText(lastCueText);
+                    }
+                });
+            }
+            @Override public void onSpeakDone(int index) {}
+        }, tts);
+        gov.setSubtitles(sharedSubs);
+        gov.setBaseRate(rate);
+        gov.setTtsVolume(ttsVol);
+        gov.setPreloadCount(preloadVn);
+        gov.setTtsVoiceName(gvoiceName);
         handler.post(ticker);
     }
 
@@ -321,6 +352,7 @@ public class TtsPlaybackService extends Service
         if (vieneuKey == null) vieneuKey = "";
         gvoiceName = sp.getString("gvoice", "");
         if (gvoiceName == null) gvoiceName = "";
+        ggLive = sp.getBoolean("gg_live", false);
         ttsEngine = sp.getString("tts_engine", "");
         if (ttsEngine == null) ttsEngine = "";
         preloadVn = sp.getInt("preload_vn", VieneuServerEngine.PRELOAD_VN);
@@ -359,6 +391,15 @@ public class TtsPlaybackService extends Service
             speaker.setSpeechRate(rate);
             speaker.setTtsVolume(ttsVol);
             speaker.setTtsVoiceName(gvoiceName);
+            if (gov != null) {
+                gov.setTts(tts);
+                gov.setSubtitles(sharedSubs);
+                gov.setAudioOffset(offset);
+                gov.setBaseRate(rate);
+                gov.setTtsVolume(ttsVol);
+                gov.setPreloadCount(preloadVn);
+                gov.setTtsVoiceName(gvoiceName);
+            }
             applySplitAudio();
             recomputeDuration();
             updateNotif();
@@ -378,6 +419,7 @@ public class TtsPlaybackService extends Service
             try { speaker.stop(); } catch (Exception ignored) {}
             speaker = null;
         }
+        if (gov != null) gov.setTts(null);
         if (tts != null) {
             try { tts.shutdown(); } catch (Exception ignored) {}
             tts = null;
@@ -403,6 +445,14 @@ public class TtsPlaybackService extends Service
      * Nhuoc: may de che do im lang / volume bao thuc nho thi sub nho theo.
      */
     private void applySplitAudio() {
+        if (gov == null) return;
+        try {
+            if (splitAudio) {
+                gov.setTtsStream(android.media.AudioManager.STREAM_ALARM);
+            } else {
+                gov.setTtsStream(android.media.AudioManager.STREAM_MUSIC);
+            }
+        } catch (Exception ignored) {}
         if (speaker == null) return;
         try {
             if (splitAudio) {
@@ -581,6 +631,7 @@ public class TtsPlaybackService extends Service
             }
             saveFilmNow();
         }
+        if (gov != null) gov.setPlaying(p);
         if (speaker != null) speaker.setPlaying(p);
         if (edge != null) edge.setPlaying(p);
         if (vn != null) vn.setPlaying(p);
@@ -588,10 +639,12 @@ public class TtsPlaybackService extends Service
             if (tts != null) {
                 try { tts.stop(); } catch (Exception ignored) {}
             }
+            if (gov != null) gov.stopPlayer();
             if (edge != null) edge.stopPlayer();
             if (vn != null) vn.stopPlayer();
         } else {
             // Bam Play: cat cau cu + preload ngay cau mp3.
+            if (gov != null) gov.stopPlayer();
             if (speaker != null) speaker.resetIndex();
             if (edge != null) edge.stopPlayer();
             if (vn != null) vn.stopPlayer();
@@ -626,14 +679,14 @@ public class TtsPlaybackService extends Service
         if (position < 0) position = 0;
         if (duration > 0 && position > duration) position = duration;
         if (playing) syncClock();
-        if (isMp3Voice(voice) && mp3() != null) {
+        if (voice == VOICE_GOOGLE && ggLive && speaker != null) {
+            speaker.resetIndex();
+            speaker.onPosition(position);
+        } else if (isMp3Voice(voice) && mp3() != null) {
             mp3().stopPlayer();
             int idx = SubtitleParser.findIndex(sharedSubs, position + offset);
             if (idx >= 0) mp3().preloadFrom(idx);
             driveEngines();
-        } else if (speaker != null) {
-            speaker.resetIndex();
-            speaker.onPosition(position);
         }
         refreshFloatTime();
     }
@@ -644,6 +697,12 @@ public class TtsPlaybackService extends Service
             speaker.setAudioOffset(offset);
             speaker.setSpeechRate(rate);
             speaker.setTtsVolume(ttsVol);
+        }
+        if (gov != null) {
+            gov.setSubtitles(sharedSubs);
+            gov.setAudioOffset(offset);
+            gov.setBaseRate(rate);
+            gov.setTtsVolume(ttsVol);
         }
         if (edge != null) {
             edge.setSubtitles(sharedSubs);
@@ -706,6 +765,7 @@ public class TtsPlaybackService extends Service
         if (running != null) {
             running.offset = v;
             if (running.speaker != null) running.speaker.setAudioOffset(v);
+            if (running.gov != null) running.gov.setAudioOffset(v);
         }
     }
 
@@ -717,6 +777,7 @@ public class TtsPlaybackService extends Service
         if (running != null) {
             running.rate = v;
             if (running.speaker != null) running.speaker.setSpeechRate(v);
+            if (running.gov != null) running.gov.setBaseRate(v);
             if (running.edge != null) running.edge.setBaseRate(v);
             if (running.vn != null) running.vn.setBaseRate(v);
         }
@@ -726,6 +787,7 @@ public class TtsPlaybackService extends Service
         if (running != null) {
             running.ttsVol = p;
             if (running.speaker != null) running.speaker.setTtsVolume(p);
+            if (running.gov != null) running.gov.setTtsVolume(p);
             if (running.edge != null) running.edge.setTtsVolume(p);
             if (running.vn != null) running.vn.setTtsVolume(p);
         }
@@ -749,6 +811,7 @@ public class TtsPlaybackService extends Service
                 }
                 // Doi giong: dung engine cu, preload lai engine moi.
                 if (running.speaker != null) running.speaker.stop();
+                if (running.gov != null) running.gov.stopPlayer();
                 if (running.tts != null) {
                     try { running.tts.stop(); } catch (Exception ignored) {}
                 }
@@ -827,7 +890,7 @@ public class TtsPlaybackService extends Service
         return VieneuServerEngine.PRELOAD_VN;
     }
 
-    /** Doi so cau preload Vieneu (1-30): luu prefs + ap ngay. */
+    /** Doi so cau preload chung Vieneu + Google file (1-30): luu prefs + ap ngay. */
     public static void setPreloadVn(int n) {
         if (n < VieneuServerEngine.PRELOAD_VN_MIN) {
             n = VieneuServerEngine.PRELOAD_VN_MIN;
@@ -839,6 +902,7 @@ public class TtsPlaybackService extends Service
             running.preloadVn = n;
             running.getSharedPreferences("webtts", MODE_PRIVATE)
                     .edit().putInt("preload_vn", n).apply();
+            if (running.gov != null) running.gov.setPreloadCount(n);
             if (running.vn != null) {
                 running.vn.setPreloadCount(n);
                 if (running.voice == VOICE_VIENEUPC && running.playing) {
@@ -847,6 +911,13 @@ public class TtsPlaybackService extends Service
                     if (idx < 0) idx = 0;
                     running.vn.preloadFrom(idx);
                 }
+            }
+            if (running.gov != null && running.voice == VOICE_GOOGLE
+                    && running.playing) {
+                int idx = SubtitleParser.findIndex(sharedSubs,
+                        running.position + running.offset);
+                if (idx < 0) idx = 0;
+                running.gov.preloadFrom(idx);
             }
         }
     }
@@ -877,6 +948,40 @@ public class TtsPlaybackService extends Service
             running.getSharedPreferences("webtts", MODE_PRIVATE)
                     .edit().putString("gvoice", n).apply();
             if (running.speaker != null) running.speaker.setTtsVoiceName(n);
+            if (running.gov != null) running.gov.setEngineVoice(n);
+        }
+    }
+
+    /** true = Google doc live truc tiep (khong cache). */
+    public static boolean isGgLive() {
+        return running != null && running.ggLive;
+    }
+
+    /** Doi che do Google live/render truoc: luu prefs + cat cau dang doc. */
+    public static void setGgLive(boolean live) {
+        if (running != null) {
+            running.ggLive = live;
+            running.getSharedPreferences("webtts", MODE_PRIVATE)
+                    .edit().putBoolean("gg_live", live).apply();
+            if (running.gov != null) running.gov.stopPlayer();
+            if (running.speaker != null) running.speaker.stop();
+            if (running.tts != null) {
+                try { running.tts.stop(); } catch (Exception ignored) {}
+            }
+            if (running.voice == VOICE_GOOGLE && running.playing) {
+                int idx = SubtitleParser.findIndex(sharedSubs,
+                        running.position + running.offset);
+                if (idx < 0) idx = 0;
+                if (live) {
+                    if (running.speaker != null) {
+                        running.speaker.resetIndex();
+                        running.speaker.onPosition(running.position);
+                    }
+                } else if (running.gov != null) {
+                    running.gov.preloadFrom(idx);
+                }
+                running.updateNotif();
+            }
         }
     }
 
@@ -953,20 +1058,22 @@ public class TtsPlaybackService extends Service
         return mp3.readyCount() + " cau";
     }
 
-    /** Tong MB cache mp3 (Edge + Vieneu) de hien tren nut Xoa cache. */
+    /** Tong MB cache (Google file + Edge + Vieneu) de hien tren nut Xoa cache. */
     public static String cacheText() {
         if (running == null) return "Xoa cache (0MB)";
         long b = 0;
+        if (running.gov != null) b += running.gov.cacheBytes();
         if (running.edge != null) b += running.edge.cacheBytes();
         if (running.vn != null) b += running.vn.cacheBytes();
         long mb = b / (1024 * 1024);
         return "Xoa cache (" + mb + "MB)";
     }
 
-    /** Xoa sach cache mp3 ca 2 engine. Tra ve so file da xoa. */
+    /** Xoa sach cache ca 3 engine. Tra ve so file da xoa. */
     public static int clearCache() {
         if (running == null) return 0;
         int n = 0;
+        if (running.gov != null) n += running.gov.clearCache();
         if (running.edge != null) n += running.edge.clearCache();
         if (running.vn != null) n += running.vn.clearCache();
         return n;
@@ -978,6 +1085,7 @@ public class TtsPlaybackService extends Service
             // Seek tu Activity/WebView: chot moc lai + cat cau cu.
             if (running.playing) running.syncClock();
             if (running.speaker != null) running.speaker.resetIndex();
+            if (running.gov != null) running.gov.resetIndex();
             if (running.edge != null) running.edge.stopPlayer();
             if (running.vn != null) running.vn.stopPlayer();
             running.driveEngines();
@@ -1192,6 +1300,7 @@ public class TtsPlaybackService extends Service
         }
         if (r.playing) r.syncClock();
         if (r.speaker != null) r.speaker.resetIndex();
+        if (r.gov != null) r.gov.resetIndex();
         if (r.edge != null) r.edge.stopPlayer();
         if (r.vn != null) r.vn.stopPlayer();
         // Pause: chi doi moc gio + chu, khong phat tieng.
@@ -1427,6 +1536,7 @@ public class TtsPlaybackService extends Service
                 getSharedPreferences("webtts", MODE_PRIVATE)
                         .edit().putInt("ttsVol", p).apply();
                 if (speaker != null) speaker.setTtsVolume(p);
+                if (gov != null) gov.setTtsVolume(p);
                 if (edge != null) edge.setTtsVolume(p);
                 if (vn != null) vn.setTtsVolume(p);
             }
@@ -1560,6 +1670,12 @@ public class TtsPlaybackService extends Service
             if (tts != null) {
                 tts.stop();
                 tts.shutdown();
+            }
+        } catch (Exception ignored) {}
+        try {
+            if (gov != null) {
+                gov.shutdownGg();
+                gov.shutdown();
             }
         } catch (Exception ignored) {}
         try {

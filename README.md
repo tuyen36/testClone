@@ -46,9 +46,11 @@ Nut noi gon: cau + gio + Play/⏮/⏭ + nut ⋯ mo them.
 
 ## Giong doc
 
-- **Google (offline)**: khong can mang. Bam **Giong Google** de chon
-  trong cac giong Viet co tren may (neu may chi co 1 giong thi khong
-  co gi de chon). Chon nho theo backup.
+- **Google (offline)**: khong can mang. Mac dinh render truoc wav +
+  preload chung so cau voi Vieneu (nut Preload); nut **Google: Render
+  truoc / Truc tiep** de doi sang doc live kieu cu (khong sinh cache).
+  Bam **Giong Google** de chon engine + giong Viet co tren may (neu
+  may chi co 1 giong thi khong co gi de chon). Chon nho theo backup.
 - **HoaiMy (online)**: can mang, preload 35 cau, cache mp3.
 - **NamMinh (online)**: giong nam, cung cach HoaiMy (doi tren nut noi
   theo vong Google → HoaiMy → NamMinh → Vieneu).

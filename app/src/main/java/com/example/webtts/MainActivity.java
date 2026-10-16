@@ -87,6 +87,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout llSavedList;
     private Button btnVoiceGoogle;
     private Button btnGoogleVoice;
+    private Button btnGgLive;
     private Button btnVoiceHoaiMy;
     private Button btnVoiceNamMinh;
     private Button btnVoiceVieneu;
@@ -147,6 +148,7 @@ public class MainActivity extends AppCompatActivity {
         btnExit = findViewById(R.id.btnExit);
         btnVoiceGoogle = findViewById(R.id.btnVoiceGoogle);
         btnGoogleVoice = findViewById(R.id.btnGoogleVoice);
+        btnGgLive = findViewById(R.id.btnGgLive);
         btnVoiceHoaiMy = findViewById(R.id.btnVoiceHoaiMy);
         btnVoiceNamMinh = findViewById(R.id.btnVoiceNamMinh);
         btnVoiceVieneu = findViewById(R.id.btnVoiceVieneu);
@@ -245,6 +247,15 @@ public class MainActivity extends AppCompatActivity {
         refreshPreloadBtn();
         btnGoogleVoice.setOnClickListener(v -> showGoogleVoiceDialog());
         refreshGoogleBtn();
+        btnGgLive.setOnClickListener(v -> {
+            ensureService();
+            boolean live = !TtsPlaybackService.isGgLive();
+            TtsPlaybackService.setGgLive(live);
+            refreshGgLiveBtn();
+            toast(live ? "Google: doc truc tiep (khong cache)."
+                    : "Google: render truoc + cache.");
+        });
+        refreshGgLiveBtn();
         btnClearCache.setOnClickListener(v -> clearCacheUi());
 
         seekPos.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -331,10 +342,11 @@ public class MainActivity extends AppCompatActivity {
                         position = sp2;
                         syncUi();
                     }
-                    // Hien loi Edge (neu co) de user biet tai sao im lang.
+                    // Hien loi engine file (neu co) de user biet tai sao im lang.
                     int gv = TtsPlaybackService.getVoice();
                     if (!subs.isEmpty()
-                            && (gv == TtsPlaybackService.VOICE_HOAIMY
+                            && (gv == TtsPlaybackService.VOICE_GOOGLE
+                            || gv == TtsPlaybackService.VOICE_HOAIMY
                             || gv == TtsPlaybackService.VOICE_NAMMINH
                             || gv == TtsPlaybackService.VOICE_VIENEUPC)) {
                         String err = TtsPlaybackService.edgeError();
@@ -827,6 +839,7 @@ public class MainActivity extends AppCompatActivity {
             o.put("ttsVol", sp.getInt("ttsVol", 100));
             o.put("voice", sp.getInt("voice", 0));
             o.put("splitAudio", sp.getBoolean("splitAudio", true));
+            o.put("gg_live", sp.getBoolean("gg_live", false));
             o.put("offset", (double) sp.getFloat("offset", 0f));
             o.put("totalLen", (double) sp.getFloat("totalLen", 0f));
             o.put("cueSize", (double) sp.getFloat("cueSize", 17f));
@@ -901,6 +914,7 @@ public class MainActivity extends AppCompatActivity {
             ed.putInt("ttsVol", o.optInt("ttsVol", 100));
             ed.putInt("voice", o.optInt("voice", 0));
             ed.putBoolean("splitAudio", o.optBoolean("splitAudio", true));
+            ed.putBoolean("gg_live", o.optBoolean("gg_live", false));
             ed.putFloat("offset", (float) o.optDouble("offset", 0));
             ed.putFloat("totalLen", (float) o.optDouble("totalLen", 0));
             ed.putFloat("cueSize", (float) o.optDouble("cueSize", 17));
@@ -984,6 +998,7 @@ public class MainActivity extends AppCompatActivity {
         TtsPlaybackService.setVoice(voice);
         TtsPlaybackService.setTtsEngine(sp.getString("tts_engine", ""));
         TtsPlaybackService.setGoogleVoice(sp.getString("gvoice", ""));
+        TtsPlaybackService.setGgLive(sp.getBoolean("gg_live", false));
         TtsPlaybackService.setTotalLen(totalLen);
         TtsPlaybackService.setSplitAudio(sp.getBoolean("splitAudio", true));
         syncUi();
@@ -1352,7 +1367,7 @@ public class MainActivity extends AppCompatActivity {
         toast("Giong Vieneu (PC): " + name);
     }
 
-    /** Nhap so cau preload Vieneu (1-30). */
+    /** Nhap so cau preload chung Vieneu + Google file (1-30). */
     private void showVieneuPreloadDialog() {
         ensureService();
         final EditText et = new EditText(this);
@@ -1362,7 +1377,7 @@ public class MainActivity extends AppCompatActivity {
                 .getInt("preload_vn", 10);
         et.setText(String.valueOf(cur));
         new AlertDialog.Builder(this)
-                .setTitle("So cau preload Vieneu")
+                .setTitle("So cau preload (Vieneu + Google)")
                 .setView(et)
                 .setPositiveButton("Luu", (d, w) -> {
                     int n;
@@ -1378,7 +1393,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     TtsPlaybackService.setPreloadVn(n);
                     refreshPreloadBtn();
-                    toast("Preload Vieneu: " + n + " cau.");
+                    toast("Preload: " + n + " cau.");
                 })
                 .setNegativeButton("Huy", null)
                 .show();
@@ -1388,7 +1403,7 @@ public class MainActivity extends AppCompatActivity {
         if (btnVieneuPreload == null) return;
         int n = getSharedPreferences("webtts", MODE_PRIVATE)
                 .getInt("preload_vn", 10);
-        btnVieneuPreload.setText("⚙  Preload Vieneu: " + n + " cau");
+        btnVieneuPreload.setText("⚙  Preload: " + n + " cau");
     }
 
     /** Chon engine TTS truoc (Fire OS mac dinh Amazon, can doi sang Google). */
@@ -1481,6 +1496,14 @@ public class MainActivity extends AppCompatActivity {
             if (s.length() > 24) s = s.substring(0, 24) + "...";
             btnGoogleVoice.setText("🎙  Giong Google: " + s);
         }
+    }
+
+    private void refreshGgLiveBtn() {
+        if (btnGgLive == null) return;
+        boolean live = getSharedPreferences("webtts", MODE_PRIVATE)
+                .getBoolean("gg_live", false);
+        btnGgLive.setText(live ? "▶  Google: Truc tiep (khong cache)"
+                : "▶  Google: Render truoc (co cache)");
     }
 
     /** Nhap dia chi server Vieneu + API key (neu co). */
@@ -1830,6 +1853,7 @@ public class MainActivity extends AppCompatActivity {
         refreshCacheBtn();
         refreshPreloadBtn();
         refreshGoogleBtn();
+        refreshGgLiveBtn();
         syncUi();
         refreshSavedList();
     }
