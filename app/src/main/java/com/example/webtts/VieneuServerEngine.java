@@ -1,4 +1,4 @@
-﻿package com.example.webtts;
+package com.example.webtts;
 
 import android.content.Context;
 
@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
  * Engine giong Vieneu tren PC nha (Turbo 48kHz).
  *
  * Ke thua EdgeVoiceEngine de tai dung toan bo cache/preload/play/speed:
- * chi thay doi NGUON TAI â€” HTTP POST /v1/audio/speech thay vi
+ * chi thay doi NGUON TAI — HTTP POST /v1/audio/speech thay vi
  * WebSocket Edge. Moi cue: text + voice=ten_giong -> wav 24kHz.
  *
  * Luu y server: CPU chi phuc vu 1-2 dong thoi nen preload it (10 cau)
