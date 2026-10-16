@@ -196,6 +196,10 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                         if (listener != null) listener.onError(index, e.getMessage());
                         return;
                     }
+                    // Server tra wav streaming (size de 0xFFFFFFFF):
+                    // MediaPlayer Android tu choi prepare -> sua header
+                    // cho dung truoc khi do duration/phat.
+                    fixWavHeader(f);
                     float d = probeDuration(f.getAbsolutePath());
                     if (d <= 0) {
                         f.delete();
@@ -244,6 +248,57 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
     public void setSubtitles(List<SubtitleCue> s) {
         lastSubs = s == null ? java.util.Collections.emptyList() : s;
         super.setSubtitles(s);
+    }
+
+    /** Sua header wav streaming (RIFF/data size 0xFFFFFFFF) thanh dung
+     *  de MediaPlayer Android chiu prepare. File cue nho nen sua truc tiep. */
+    private static boolean fixWavHeader(File f) {
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(f, "rw");
+            long len = raf.length();
+            if (len < 44) return false;
+            byte[] riff = new byte[4];
+            raf.readFully(riff);
+            if (riff[0] != 'R' || riff[1] != 'I' || riff[2] != 'F' || riff[3] != 'F') {
+                return false;
+            }
+            writeLe32(raf, 4, (int) (len - 8));
+            long pos = 12;
+            byte[] ch = new byte[8];
+            while (pos + 8 <= len) {
+                raf.seek(pos);
+                raf.readFully(ch);
+                if (ch[0] == 'd' && ch[1] == 'a' && ch[2] == 't' && ch[3] == 'a') {
+                    writeLe32(raf, pos + 4, (int) (len - (pos + 8)));
+                    return true;
+                }
+                long csz = le32(ch, 4) & 0xFFFFFFFFL;
+                if (csz < 0 || csz > len) return false;
+                pos += 8 + csz + (csz & 1);
+            }
+            return false;
+        } catch (Exception ignored) {
+            return false;
+        } finally {
+            if (raf != null) {
+                try { raf.close(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
+    private static void writeLe32(java.io.RandomAccessFile raf, long pos, int v)
+            throws Exception {
+        raf.seek(pos);
+        raf.write(v & 0xFF);
+        raf.write((v >> 8) & 0xFF);
+        raf.write((v >> 16) & 0xFF);
+        raf.write((v >> 24) & 0xFF);
+    }
+
+    private static int le32(byte[] b, int off) {
+        return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8)
+                | ((b[off + 2] & 0xFF) << 16) | ((b[off + 3] & 0xFF) << 24);
     }
 
     public void shutdownVn() {
