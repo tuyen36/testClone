@@ -86,6 +86,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnClearSavedSubs;
     private LinearLayout llSavedList;
     private Button btnVoiceGoogle;
+    private Button btnGoogleVoice;
     private Button btnVoiceHoaiMy;
     private Button btnVoiceNamMinh;
     private Button btnVoiceVieneu;
@@ -145,6 +146,7 @@ public class MainActivity extends AppCompatActivity {
         btnSleep = findViewById(R.id.btnSleep);
         btnExit = findViewById(R.id.btnExit);
         btnVoiceGoogle = findViewById(R.id.btnVoiceGoogle);
+        btnGoogleVoice = findViewById(R.id.btnGoogleVoice);
         btnVoiceHoaiMy = findViewById(R.id.btnVoiceHoaiMy);
         btnVoiceNamMinh = findViewById(R.id.btnVoiceNamMinh);
         btnVoiceVieneu = findViewById(R.id.btnVoiceVieneu);
@@ -241,6 +243,8 @@ public class MainActivity extends AppCompatActivity {
         btnVieneuServer.setOnClickListener(v -> showVieneuServerDialog(false));
         btnVieneuPreload.setOnClickListener(v -> showVieneuPreloadDialog());
         refreshPreloadBtn();
+        btnGoogleVoice.setOnClickListener(v -> showGoogleVoiceDialog());
+        refreshGoogleBtn();
         btnClearCache.setOnClickListener(v -> clearCacheUi());
 
         seekPos.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -833,6 +837,7 @@ public class MainActivity extends AppCompatActivity {
             putStr(o, sp, SubSearchManager.K_OS_PASS);
             putStr(o, sp, SubSearchManager.K_TMDB);
             putStr(o, sp, "os_token");
+            putStr(o, sp, "gvoice");
             o.put(SubSearchManager.K_EN_SUBDL,
                     sp.getBoolean(SubSearchManager.K_EN_SUBDL, true));
             o.put(SubSearchManager.K_EN_OS,
@@ -905,6 +910,7 @@ public class MainActivity extends AppCompatActivity {
             getStr(o, ed, SubSearchManager.K_OS_PASS);
             getStr(o, ed, SubSearchManager.K_TMDB);
             getStr(o, ed, "os_token");
+            getStr(o, ed, "gvoice");
             ed.putBoolean(SubSearchManager.K_EN_SUBDL,
                     o.optBoolean(SubSearchManager.K_EN_SUBDL, true));
             ed.putBoolean(SubSearchManager.K_EN_OS,
@@ -974,6 +980,7 @@ public class MainActivity extends AppCompatActivity {
         TtsPlaybackService.setRate(rate);
         TtsPlaybackService.setTtsVolume(ttsVol);
         TtsPlaybackService.setVoice(voice);
+        TtsPlaybackService.setGoogleVoice(sp.getString("gvoice", ""));
         TtsPlaybackService.setTotalLen(totalLen);
         TtsPlaybackService.setSplitAudio(sp.getBoolean("splitAudio", true));
         syncUi();
@@ -1381,6 +1388,54 @@ public class MainActivity extends AppCompatActivity {
         btnVieneuPreload.setText("⚙  Preload Vieneu: " + n + " cau");
     }
 
+    /** Chon voice Google offline trong cac giong Viet co tren may. */
+    private void showGoogleVoiceDialog() {
+        ensureService();
+        final List<String> labels = TtsPlaybackService.listGoogleVoices();
+        if (labels.isEmpty()) {
+            toast("Khong doc duoc danh sach giong Viet (may chi co giong mac dinh).");
+            return;
+        }
+        final String cur = getSharedPreferences("webtts", MODE_PRIVATE)
+                .getString("gvoice", "");
+        final String[] arr = labels.toArray(new String[0]);
+        int checked = 0;
+        for (int i = 0; i < arr.length; i++) {
+            String plain = arr[i].endsWith(" (online)")
+                    ? arr[i].substring(0, arr[i].length() - 9) : arr[i];
+            if (plain.equals(cur)) { checked = i; break; }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Giong Google (offline)")
+                .setSingleChoiceItems(arr, checked, (d, w) -> {
+                    ensureService();
+                    TtsPlaybackService.setGoogleVoice(arr[w]);
+                    refreshGoogleBtn();
+                    d.dismiss();
+                    toast("Giong Google: " + arr[w]);
+                })
+                .setNegativeButton("Mac dinh", (d, w) -> {
+                    ensureService();
+                    TtsPlaybackService.setGoogleVoice("");
+                    refreshGoogleBtn();
+                    toast("Giong Google: mac dinh he thong.");
+                })
+                .show();
+    }
+
+    private void refreshGoogleBtn() {
+        if (btnGoogleVoice == null) return;
+        String cur = getSharedPreferences("webtts", MODE_PRIVATE)
+                .getString("gvoice", "");
+        if (cur == null || cur.isEmpty()) {
+            btnGoogleVoice.setText("🎙  Giong Google: mac dinh");
+        } else {
+            String s = cur;
+            if (s.length() > 24) s = s.substring(0, 24) + "...";
+            btnGoogleVoice.setText("🎙  Giong Google: " + s);
+        }
+    }
+
     /** Nhap dia chi server Vieneu + API key (neu co). */
     private void showVieneuServerDialog(final boolean thenPickVoice) {
         ensureService();
@@ -1727,6 +1782,7 @@ public class MainActivity extends AppCompatActivity {
         refreshVoiceUi();
         refreshCacheBtn();
         refreshPreloadBtn();
+        refreshGoogleBtn();
         syncUi();
         refreshSavedList();
     }

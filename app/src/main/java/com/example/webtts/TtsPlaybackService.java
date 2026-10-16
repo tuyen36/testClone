@@ -123,6 +123,8 @@ public class TtsPlaybackService extends Service
     private String vieneuVoiceName = "Clone";
     private String vieneuUrl = "";
     private String vieneuKey = "";
+    /** Ten voice Google offline da chon (rong = mac dinh he thong). */
+    private String gvoiceName = "";
     /** So cau preload Vieneu do user chon (mac dinh 10, 1-30). */
     private int preloadVn = VieneuServerEngine.PRELOAD_VN;
 
@@ -315,6 +317,8 @@ public class TtsPlaybackService extends Service
         if (vieneuUrl == null) vieneuUrl = "";
         vieneuKey = sp.getString("vieneu_key", "");
         if (vieneuKey == null) vieneuKey = "";
+        gvoiceName = sp.getString("gvoice", "");
+        if (gvoiceName == null) gvoiceName = "";
         preloadVn = sp.getInt("preload_vn", VieneuServerEngine.PRELOAD_VN);
         if (preloadVn < VieneuServerEngine.PRELOAD_VN_MIN) {
             preloadVn = VieneuServerEngine.PRELOAD_VN_MIN;
@@ -350,6 +354,7 @@ public class TtsPlaybackService extends Service
             speaker.setAudioOffset(offset);
             speaker.setSpeechRate(rate);
             speaker.setTtsVolume(ttsVol);
+            speaker.setTtsVoiceName(gvoiceName);
             applySplitAudio();
             recomputeDuration();
             updateNotif();
@@ -821,6 +826,46 @@ public class TtsPlaybackService extends Service
                     .edit().putString("vieneu_key", k).apply();
             if (running.vn != null) running.vn.setApiKey(k);
         }
+    }
+
+    /** Ten voice Google offline dang chon (rong = mac dinh he thong). */
+    public static String getGoogleVoiceName() {
+        return running != null ? running.gvoiceName : "";
+    }
+
+    /** Doi voice Google offline: luu prefs + ap ngay (khoi dong lai van nho). */
+    public static void setGoogleVoice(String name) {
+        String n = name == null ? "" : name;
+        // listGoogleVoices them hau to " (online)" de hien thi -> cat khi luu.
+        if (n.endsWith(" (online)")) n = n.substring(0, n.length() - 9);
+        if (running != null) {
+            running.gvoiceName = n;
+            running.getSharedPreferences("webtts", MODE_PRIVATE)
+                    .edit().putString("gvoice", n).apply();
+            if (running.speaker != null) running.speaker.setTtsVoiceName(n);
+        }
+    }
+
+    /** Danh sach ten voice tieng Viet co tren may (rong = khong co/khong doc duoc). */
+    public static java.util.List<String> listGoogleVoices() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            if (running == null || running.tts == null) return out;
+            java.util.Set<android.speech.tts.Voice> vs =
+                    running.tts.getVoices();
+            if (vs == null) return out;
+            for (android.speech.tts.Voice v : vs) {
+                if (v == null || v.getLocale() == null) continue;
+                if (!"vi".equals(v.getLocale().getLanguage())) continue;
+                String label = v.getName();
+                try {
+                    if (v.isNetworkConnectionRequired()) label += " (online)";
+                } catch (Exception ignored) {}
+                out.add(label);
+            }
+            java.util.Collections.sort(out);
+        } catch (Exception ignored) {}
+        return out;
     }
 
     public static String voiceName() {

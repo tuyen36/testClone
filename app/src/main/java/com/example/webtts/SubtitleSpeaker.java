@@ -60,6 +60,11 @@ public class SubtitleSpeaker {
     private volatile float ttsVolume = 1.0f;
     /** PARAM_STREAM (API 21+): tach sub ra khoi stream media cua Netflix. */
     private volatile int ttsStream = android.media.AudioManager.STREAM_MUSIC;
+    /**
+     * Ten voice Google da chon (vd "vi-VN-..."). Rong = mac dinh he thong.
+     * Phai ap lai sau moi setLanguage (no reset voice ve default).
+     */
+    private volatile String ttsVoiceName = "";
 
     // ----- tu hieu chinh toc do that (thay ffprobe) -----
     /**
@@ -193,6 +198,32 @@ public class SubtitleSpeaker {
     public void setTtsStream(int stream) { ttsStream = stream; }
     public int getTtsStream() { return ttsStream; }
 
+    /** Chon voice Google theo ten (luu lai, ap sau moi setLanguage). */
+    public void setTtsVoiceName(String name) {
+        ttsVoiceName = name == null ? "" : name;
+        applyTtsVoice();
+    }
+    public String getTtsVoiceName() { return ttsVoiceName; }
+
+    /** Tim voice Vi trong tts theo ten + ap dung (false = khong thay). */
+    public boolean applyTtsVoice() {
+        String want = ttsVoiceName;
+        if (want == null || want.isEmpty()) return false;
+        try {
+            java.util.Set<android.speech.tts.Voice> vs = tts.getVoices();
+            if (vs == null) return false;
+            for (android.speech.tts.Voice v : vs) {
+                if (v == null || v.getLocale() == null) continue;
+                if (!"vi".equals(v.getLocale().getLanguage())) continue;
+                if (want.equals(v.getName())) {
+                    tts.setVoice(v);
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     /**
      * Tinh rate can thiet de doc het text trong slot giay.
      * Giong create_speed_audio() Python: speed = raw/target, kep 1..2.5.
@@ -296,6 +327,10 @@ public class SubtitleSpeaker {
 
         try {
             tts.setLanguage(new Locale("vi", "VN"));
+        } catch (Exception ignored) {}
+        // setLanguage reset voice ve default -> ap lai voice da chon.
+        try {
+            applyTtsVoice();
         } catch (Exception ignored) {}
         try {
             tts.setSpeechRate(effRate);
