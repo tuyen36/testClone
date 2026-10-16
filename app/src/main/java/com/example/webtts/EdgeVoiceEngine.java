@@ -298,11 +298,6 @@ public class EdgeVoiceEngine {
                     }
                 }
             });
-        } catch (Exception e) {
-            queued.remove(gen + ":" + index);
-            lastError = e.getMessage();
-            if (listener != null) listener.onError(index, e.getMessage());
-        }
     }
 
     protected static float probeDuration(String path) {
