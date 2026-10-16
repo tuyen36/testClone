@@ -1,0 +1,227 @@
+package com.example.webtts;
+
+import android.content.Context;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.security.MessageDigest;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * Engine giong Vieneu tren PC nha (Turbo 48kHz).
+ *
+ * Ke thua EdgeVoiceEngine de tai dung toan bo cache/preload/play/speed:
+ * chi thay doi NGUON TAI — HTTP POST /v1/audio/speech thay vi
+ * WebSocket Edge. Moi cue: text + voice=ten_giong -> wav 24kHz.
+ *
+ * Luu y server: CPU chi phuc vu 1-2 dong thoi nen preload it (10 cau)
+ * tren 1 thread, tranh de hang doi 429. Enroll giong lam tren PC
+ * (POST /v1/voices), app chi chon ten giong da co.
+ */
+public class VieneuServerEngine extends EdgeVoiceEngine {
+
+    /** Preload it hon Edge (server CPU nha yeu, tranh 429). */
+    public static final int PRELOAD_VN = 10;
+
+    private volatile String serverUrl = "";
+    private volatile String apiKey = "";
+    private volatile String serverVoice = "Clone";
+
+    /** Thread tai tuan tu, khong de server nghe CPU. */
+    private final ExecutorService vnExec =
+            Executors.newSingleThreadExecutor();
+
+    public VieneuServerEngine(Context ctx, Listener listener) {
+        super(ctx, listener, "vieneu_cache");
+    }
+
+    public void setServerUrl(String url) {
+        String u = VieneuVoiceClient.normBase(url == null ? "" : url);
+        if (u.equals(serverUrl)) return;
+        serverUrl = u;
+        // Doi server = audio khac -> xoa map tam (file cache giu lai).
+        generation.incrementAndGet();
+        readyPath.clear();
+        rawDur.clear();
+        queued.clear();
+        lastError = null;
+        stopPlayer();
+        currentIndex = -1;
+    }
+
+    public String getServerUrl() { return serverUrl; }
+
+    public void setApiKey(String key) {
+        apiKey = key == null ? "" : key;
+    }
+
+    /** Doi ten giong Vieneu (vd "Clone", "Mai Anh"): xoa map tam. */
+    public void setServerVoice(String name) {
+        if (name == null || name.isEmpty() || name.equals(serverVoice)) return;
+        serverVoice = name;
+        generation.incrementAndGet();
+        readyPath.clear();
+        rawDur.clear();
+        queued.clear();
+        lastError = null;
+        stopPlayer();
+        currentIndex = -1;
+    }
+
+    public String getServerVoice() { return serverVoice; }
+
+    @Override
+    public void setEngineVoice(String name) {
+        setServerVoice(name);
+    }
+
+    @Override
+    protected String key(int index, String text) {
+        try {
+            String raw = "vieneu|" + serverVoice + "|" + index + "|" + text;
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] h = md.digest(raw.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : h) sb.append(String.format(Locale.US, "%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return "vn" + index + "_" + text.length();
+        }
+    }
+
+    @Override
+    protected File pathFor(int index, String text) {
+        return new File(cacheDir, key(index, text) + ".wav");
+    }
+
+    /** Preload it (10 cau) tuan tu de nhe server CPU nha. */
+    @Override
+    public void preloadFrom(int index) {
+        List<SubtitleCue> s = subList();
+        if (s.isEmpty() || index < 0) return;
+        int gen = generation.get();
+        int end = Math.min(s.size(), index + PRELOAD_VN + 1);
+        for (int i = index; i < end; i++) {
+            final int idx = i;
+            String qk = gen + ":" + idx;
+            if (readyPath.containsKey(idx) || queued.containsKey(qk)) continue;
+            queued.put(qk, true);
+            vnExec.execute(() -> fetchOne(idx, gen));
+        }
+    }
+
+    /** Ban fetch() gon cho thread tuan tu (giong logic lop cha). */
+    private void fetchOne(int index, int gen) {
+        List<SubtitleCue> s = subList();
+        if (index < 0 || index >= s.size()) {
+            queued.remove(gen + ":" + index);
+            return;
+        }
+        if (gen != generation.get()) {
+            queued.remove(gen + ":" + index);
+            return;
+        }
+        try {
+            SubtitleCue cue = s.get(index);
+            java.io.File f = pathFor(index, cue.text);
+            if (f.exists() && f.length() > 0) {
+                float d = probeDuration(f.getAbsolutePath());
+                if (d > 0) {
+                    rawDur.put(index, d);
+                    readyPath.put(index, f.getAbsolutePath());
+                    lastError = null;
+                    if (listener != null) {
+                        listener.onReady(index, readyPath.size(),
+                                Math.min(s.size(), PRELOAD_VN + 1));
+                    }
+                    queued.remove(gen + ":" + index);
+                    return;
+                } else {
+                    f.delete();
+                }
+            }
+            fetchAudio(index, gen, cue, f);
+        } catch (Exception e) {
+            queued.remove(gen + ":" + index);
+            lastError = e.getMessage();
+            if (listener != null) listener.onError(index, e.getMessage());
+        }
+    }
+
+    @Override
+    protected void fetchAudio(final int index, final int gen,
+                              SubtitleCue cue, final File f) {
+        final String url = serverUrl;
+        final String key = apiKey;
+        final String voice = serverVoice;
+        VieneuVoiceClient.synthesize(url, key, cue.text, voice,
+                new VieneuVoiceClient.Callback() {
+            @Override public void onAudio(byte[] wav) {
+                try {
+                    if (gen != generation.get()) return;
+                    try {
+                        FileOutputStream out = new FileOutputStream(f);
+                        out.write(wav);
+                        out.close();
+                    } catch (Exception e) {
+                        lastError = e.getMessage();
+                        if (listener != null) listener.onError(index, e.getMessage());
+                        return;
+                    }
+                    float d = probeDuration(f.getAbsolutePath());
+                    if (d <= 0) {
+                        f.delete();
+                        lastError = "wav loi";
+                        if (listener != null) listener.onError(index, "wav loi");
+                        return;
+                    }
+                    rawDur.put(index, d);
+                    readyPath.put(index, f.getAbsolutePath());
+                    lastError = null;
+                    if (listener != null) {
+                        listener.onReady(index, readyPath.size(),
+                                Math.min(subCount(), PRELOAD_VN + 1));
+                    }
+                } finally {
+                    queued.remove(gen + ":" + index);
+                }
+            }
+            @Override public void onError(String msg) {
+                try {
+                    lastError = msg;
+                    if (listener != null) listener.onError(index, msg);
+                } finally {
+                    queued.remove(gen + ":" + index);
+                }
+            }
+        });
+    }
+
+    /** Lay list sub tu lop cha (subs la private). */
+    private List<SubtitleCue> subList() {
+        // preloadFrom/speak cua lop cha tu quan ly subs; o day can list
+        // de chon cue: dung currentIndex lam neo khi khong co cach khac.
+        // Don gian nhat: nho list tu setSubtitles.
+        return lastSubs;
+    }
+
+    private volatile List<SubtitleCue> lastSubs =
+            java.util.Collections.emptyList();
+
+    @Override
+    public void setSubtitles(List<SubtitleCue> s) {
+        lastSubs = s == null ? java.util.Collections.emptyList() : s;
+        super.setSubtitles(s);
+    }
+
+    public void shutdownVn() {
+        try {
+            vnExec.shutdownNow();
+        } catch (Exception ignored) {}
+    }
+}
