@@ -330,6 +330,16 @@ public class MainActivity extends AppCompatActivity {
                         playing = p;
                         refreshPlayBtn();
                     }
+                    // Dong bo giong khi doi tu nut noi (service la nguon that).
+                    int sv = TtsPlaybackService.getVoice();
+                    if (sv != voice) {
+                        voice = sv;
+                        getSharedPreferences("webtts", MODE_PRIVATE)
+                                .edit().putInt("voice", sv).apply();
+                        refreshVoiceUi();
+                        refreshGoogleBtn();
+                        refreshGgLiveBtn();
+                    }
                     String cue = TtsPlaybackService.currentCueText();
                     if (cue != null && !cue.equals(tvCue.getText().toString())) {
                         tvCue.setText(cue);
