@@ -35,7 +35,11 @@ public class VieneuVoiceClient {
             this.id = id == null ? "" : id;
             this.label = (label == null || label.isEmpty()) ? this.id : label;
         }
-        @Override public String toString() { return label; }
+        @Override public String toString() {
+            // Dialog phai thay TEN giong truoc (vd "Minh Quan — Nam · Bac ...").
+            if (label == null || label.isEmpty() || label.equals(id)) return id;
+            return id + " — " + label;
+        }
     }
 
     private static final int CONNECT_TIMEOUT_MS = 15000;
