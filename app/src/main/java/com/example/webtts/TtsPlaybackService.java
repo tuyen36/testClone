@@ -123,6 +123,8 @@ public class TtsPlaybackService extends Service
     private String vieneuVoiceName = "Clone";
     private String vieneuUrl = "";
     private String vieneuKey = "";
+    /** Package engine TTS dang dung (rong = mac dinh he thong). */
+    private String ttsEngine = "";
     /** Ten voice Google offline da chon (rong = mac dinh he thong). */
     private String gvoiceName = "";
     /** So cau preload Vieneu do user chon (mac dinh 10, 1-30). */
@@ -252,7 +254,7 @@ public class TtsPlaybackService extends Service
         running = this;
         loadPrefs();
         startFg();
-        tts = new TextToSpeech(getApplicationContext(), this);
+        createTts();
         edge = new EdgeVoiceEngine(this, new EdgeVoiceEngine.Listener() {
             @Override public void onReady(int index, int cached, int total) {
                 handler.post(() -> updateNotif());
@@ -319,6 +321,8 @@ public class TtsPlaybackService extends Service
         if (vieneuKey == null) vieneuKey = "";
         gvoiceName = sp.getString("gvoice", "");
         if (gvoiceName == null) gvoiceName = "";
+        ttsEngine = sp.getString("tts_engine", "");
+        if (ttsEngine == null) ttsEngine = "";
         preloadVn = sp.getInt("preload_vn", VieneuServerEngine.PRELOAD_VN);
         if (preloadVn < VieneuServerEngine.PRELOAD_VN_MIN) {
             preloadVn = VieneuServerEngine.PRELOAD_VN_MIN;
@@ -358,6 +362,36 @@ public class TtsPlaybackService extends Service
             applySplitAudio();
             recomputeDuration();
             updateNotif();
+        } else if (!ttsEngine.isEmpty()) {
+            // Engine da chon loi (vd bi go cai) -> roi ve mac dinh he thong.
+            ttsEngine = "";
+            getSharedPreferences("webtts", MODE_PRIVATE)
+                    .edit().putString("tts_engine", "").apply();
+            createTts();
+        }
+    }
+
+    /** Tao TextToSpeech theo engine da chon (rong = mac dinh he thong). */
+    private void createTts() {
+        ttsReady = false;
+        if (speaker != null) {
+            try { speaker.stop(); } catch (Exception ignored) {}
+            speaker = null;
+        }
+        if (tts != null) {
+            try { tts.shutdown(); } catch (Exception ignored) {}
+            tts = null;
+        }
+        try {
+            if (ttsEngine != null && !ttsEngine.isEmpty()) {
+                tts = new TextToSpeech(getApplicationContext(), this,
+                        ttsEngine);
+            } else {
+                tts = new TextToSpeech(getApplicationContext(), this);
+            }
+        } catch (Exception e) {
+            ttsEngine = "";
+            tts = new TextToSpeech(getApplicationContext(), this);
         }
     }
 
@@ -844,6 +878,39 @@ public class TtsPlaybackService extends Service
                     .edit().putString("gvoice", n).apply();
             if (running.speaker != null) running.speaker.setTtsVoiceName(n);
         }
+    }
+
+    /** Package engine TTS dang dung (rong = mac dinh he thong). */
+    public static String getTtsEngine() {
+        return running != null ? running.ttsEngine : "";
+    }
+
+    /** Doi engine TTS (can khoi tao lai TTS, mat ~1-2 giay). */
+    public static void setTtsEngine(String pkg) {
+        String p = pkg == null ? "" : pkg;
+        if (running != null) {
+            if (p.equals(running.ttsEngine)) return;
+            running.ttsEngine = p;
+            running.getSharedPreferences("webtts", MODE_PRIVATE)
+                    .edit().putString("tts_engine", p).apply();
+            running.createTts();
+        }
+    }
+
+    /** Danh sach engine TTS co tren may (ten hien thi). */
+    public static java.util.List<String> listTtsEngines() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            if (running == null || running.tts == null) return out;
+            java.util.List<android.speech.tts.TextToSpeech.EngineInfo> es =
+                    running.tts.getEngines();
+            if (es == null) return out;
+            for (android.speech.tts.TextToSpeech.EngineInfo e : es) {
+                if (e == null) continue;
+                out.add(e.label + "\n" + e.name);
+            }
+        } catch (Exception ignored) {}
+        return out;
     }
 
     /** Danh sach ten voice tieng Viet co tren may (rong = khong co/khong doc duoc). */

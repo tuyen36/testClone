@@ -838,6 +838,7 @@ public class MainActivity extends AppCompatActivity {
             putStr(o, sp, SubSearchManager.K_TMDB);
             putStr(o, sp, "os_token");
             putStr(o, sp, "gvoice");
+            putStr(o, sp, "tts_engine");
             o.put(SubSearchManager.K_EN_SUBDL,
                     sp.getBoolean(SubSearchManager.K_EN_SUBDL, true));
             o.put(SubSearchManager.K_EN_OS,
@@ -911,6 +912,7 @@ public class MainActivity extends AppCompatActivity {
             getStr(o, ed, SubSearchManager.K_TMDB);
             getStr(o, ed, "os_token");
             getStr(o, ed, "gvoice");
+            getStr(o, ed, "tts_engine");
             ed.putBoolean(SubSearchManager.K_EN_SUBDL,
                     o.optBoolean(SubSearchManager.K_EN_SUBDL, true));
             ed.putBoolean(SubSearchManager.K_EN_OS,
@@ -980,6 +982,7 @@ public class MainActivity extends AppCompatActivity {
         TtsPlaybackService.setRate(rate);
         TtsPlaybackService.setTtsVolume(ttsVol);
         TtsPlaybackService.setVoice(voice);
+        TtsPlaybackService.setTtsEngine(sp.getString("tts_engine", ""));
         TtsPlaybackService.setGoogleVoice(sp.getString("gvoice", ""));
         TtsPlaybackService.setTotalLen(totalLen);
         TtsPlaybackService.setSplitAudio(sp.getBoolean("splitAudio", true));
@@ -1388,8 +1391,52 @@ public class MainActivity extends AppCompatActivity {
         btnVieneuPreload.setText("⚙  Preload Vieneu: " + n + " cau");
     }
 
-    /** Chon voice Google offline trong cac giong Viet co tren may. */
+    /** Chon engine TTS truoc (Fire OS mac dinh Amazon, can doi sang Google). */
     private void showGoogleVoiceDialog() {
+        ensureService();
+        final List<String> engs = TtsPlaybackService.listTtsEngines();
+        if (engs.size() > 1) {
+            showTtsEngineDialog(engs);
+            return;
+        }
+        showGoogleVoiceList();
+    }
+
+    private void showTtsEngineDialog(final List<String> engs) {
+        final String cur = TtsPlaybackService.getTtsEngine();
+        final java.util.List<String> items = new java.util.ArrayList<>();
+        final java.util.List<String> pkgs = new java.util.ArrayList<>();
+        items.add("He thong (mac dinh)");
+        pkgs.add("");
+        for (String e : engs) {
+            int nl = e.lastIndexOf('\n');
+            String label = nl >= 0 ? e.substring(0, nl) : e;
+            String pkg = nl >= 0 ? e.substring(nl + 1) : e;
+            if (pkg.isEmpty()) continue;
+            items.add(label);
+            pkgs.add(pkg);
+        }
+        final String[] arr = items.toArray(new String[0]);
+        int checked = 0;
+        for (int i = 0; i < pkgs.size(); i++) {
+            if (pkgs.get(i).equals(cur)) { checked = i; break; }
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Engine TTS")
+                .setSingleChoiceItems(arr, checked, (d, w) -> {
+                    ensureService();
+                    TtsPlaybackService.setTtsEngine(pkgs.get(w));
+                    d.dismiss();
+                    toast("Engine TTS: " + arr[w] + " (doi 1-2 giay...)");
+                    new android.os.Handler().postDelayed(
+                            () -> showGoogleVoiceList(), 2000);
+                })
+                .setNegativeButton("Huy", null)
+                .show();
+    }
+
+    /** Chon voice Google offline trong cac giong Viet co tren may. */
+    private void showGoogleVoiceList() {
         ensureService();
         final List<String> labels = TtsPlaybackService.listGoogleVoices();
         if (labels.isEmpty()) {
