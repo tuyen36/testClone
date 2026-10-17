@@ -66,6 +66,15 @@ Nut noi gon: cau + gio + Play/⏮/⏭ + nut ⋯ mo them.
   bam Pause). Khong can mang Internet, chi can LAN nha.
   Nut **Xoa cache (N MB)** de don.
 
+## Gioi han cache
+
+- Tong cache ca 3 giong (Google file + Edge + Vieneu) giu **duoi 1GB**.
+  Khi cham nguong, app tu **xoa file cu nhat** (theo thoi diem tao) cho
+  toi khi ve khoang 900MB — file vua tao (cua so dang phat) duoc giu lai.
+- Nut **Xoa cache (N/1024MB)** hien muc cache dang dung.
+- Nap **phim khac** (sub khac) thi app **xoa sach cache cu** truoc khi
+  nap sub moi, nen khong con rac cua phim truoc.
+
 ## Nho phim + hen gio + tu dung khi co cuoc goi
 
 - Moi phim (theo ten file sub) tu nho **tong gio + vi tri dung**: nap lai

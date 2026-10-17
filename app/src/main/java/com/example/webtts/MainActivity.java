@@ -480,8 +480,16 @@ public class MainActivity extends AppCompatActivity {
         filmId = fid == null ? "" : fid;
         filmName = (fname == null || fname.isEmpty()) ? "phim" : fname;
         filmUri = furi == null ? "" : furi;
+        // Doi sang phim khac: xoa sach cache cu truoc khi nap sub moi
+        // (lam truoc setSharedSubtitles de auto-preload ghi cache moi).
+        SharedPreferences spf = getSharedPreferences("webtts", MODE_PRIVATE);
+        String prevFilm = spf.getString("curfilm_id", "");
+        if (prevFilm != null && !prevFilm.isEmpty()
+                && !prevFilm.equals(filmId)) {
+            TtsPlaybackService.clearAllCache(this);
+        }
         // Ghi ca vao prefs phong khi service chua chay (setFilm se mat).
-        getSharedPreferences("webtts", MODE_PRIVATE).edit()
+        spf.edit()
                 .putString("curfilm_id", filmId)
                 .putString("curfilm_name", filmName)
                 .apply();

@@ -85,6 +85,9 @@ public class EdgeVoiceEngine {
         if (!cacheDir.exists()) cacheDir.mkdirs();
     }
 
+    /** Thu muc cache cua engine (service dung de don theo gioi han dung luong). */
+    public File cacheDir() { return cacheDir; }
+
     public void setSubtitles(List<SubtitleCue> s) {
         generation.incrementAndGet();
         subs = s == null ? java.util.Collections.emptyList() : s;
@@ -327,12 +330,20 @@ public class EdgeVoiceEngine {
     public boolean speak(int index, double slotSec, int stream) {
         List<SubtitleCue> s = subs;
         if (index < 0 || index >= s.size()) return false;
-        final String path = readyPath.get(index);
-        if (path == null) {
+        String p0 = readyPath.get(index);
+        // File cache co the bi don (gioi han 1GB) hoac user xoa cache:
+        // bo muc cu de tai lai thay vi im lang.
+        if (p0 != null && !new File(p0).exists()) {
+            readyPath.remove(index);
+            rawDur.remove(index);
+            p0 = null;
+        }
+        if (p0 == null) {
             // Chua tai xong: queue gap + preload (port queue_tts priority=0).
             preloadFrom(index);
             return false;
         }
+        final String path = p0;
         currentIndex = index;
         Float raw = rawDur.get(index);
         float speed = 1.0f;

@@ -204,6 +204,115 @@ public class TtsPlaybackService extends Service
     private long sleepLeftMs = 0;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+
+    // ----- gioi han cache: duoi 1GB, qua nguong thi xoa file cu nhat -----
+    /** Tran tong cache ca 3 engine (byte). */
+    public static final long CACHE_LIMIT_BYTES = 1024L * 1024 * 1024;
+    /** Don bot xuong muc nay de khong vua xoa vua day. */
+    private static final long CACHE_TRIM_TO_BYTES = 900L * 1024 * 1024;
+    /** Khong xoa file vua tao (co the la cua so dang phat). */
+    private static final long CACHE_KEEP_RECENT_MS = 60000L;
+    /** Gian cach toi thieu giua 2 lan kiem tra (ms). */
+    private static final long CACHE_CHECK_EVERY_MS = 5000L;
+    private final java.util.concurrent.ExecutorService cacheExec =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private volatile boolean cacheTrimRunning = false;
+    private long lastCacheCheckAt = 0;
+
+    /** Kiem tra tran cache (goi tu ticker; tu gian cach, khong block UI). */
+    private void maybeTrimCache() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastCacheCheckAt < CACHE_CHECK_EVERY_MS) return;
+        lastCacheCheckAt = now;
+        if (cacheTrimRunning) return;
+        cacheTrimRunning = true;
+        cacheExec.execute(new Runnable() {
+            @Override public void run() {
+                try {
+                    java.io.File[] dirs = cacheDirs();
+                    if (totalCacheBytes(dirs) > CACHE_LIMIT_BYTES) {
+                        trimOldestCache(dirs);
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    cacheTrimRunning = false;
+                }
+            }
+        });
+    }
+
+    /** Thu muc cache cua cac engine dang song. */
+    private java.io.File[] cacheDirs() {
+        java.util.List<java.io.File> ds = new java.util.ArrayList<>();
+        if (edge != null) ds.add(edge.cacheDir());
+        if (vn != null) ds.add(vn.cacheDir());
+        if (gov != null) ds.add(gov.cacheDir());
+        return ds.toArray(new java.io.File[0]);
+    }
+
+    private static long totalCacheBytes(java.io.File[] dirs) {
+        long t = 0;
+        for (java.io.File d : dirs) {
+            java.io.File[] fs = d == null ? null : d.listFiles();
+            if (fs == null) continue;
+            for (java.io.File f : fs) {
+                if (f != null && f.isFile()) t += f.length();
+            }
+        }
+        return t;
+    }
+
+    /** Xoa file cu nhat truoc (lastModified tang dan) cho toi khi duoi muc don. */
+    private static void trimOldestCache(java.io.File[] dirs) {
+        java.util.List<java.io.File> all = new java.util.ArrayList<>();
+        long total = 0;
+        for (java.io.File d : dirs) {
+            java.io.File[] fs = d == null ? null : d.listFiles();
+            if (fs == null) continue;
+            for (java.io.File f : fs) {
+                if (f == null || !f.isFile()) continue;
+                all.add(f);
+                total += f.length();
+            }
+        }
+        java.util.Collections.sort(all, new java.util.Comparator<java.io.File>() {
+            @Override public int compare(java.io.File a, java.io.File b) {
+                return Long.compare(a.lastModified(), b.lastModified());
+            }
+        });
+        long now = System.currentTimeMillis();
+        for (java.io.File f : all) {
+            if (total <= CACHE_TRIM_TO_BYTES) break;
+            // File vua tao co the la cua so dang phat -> bo qua.
+            if (now - f.lastModified() < CACHE_KEEP_RECENT_MS) continue;
+            long len = f.length();
+            if (f.delete()) total -= len;
+        }
+    }
+
+    /** Ten 3 thu muc cache (dung khi service chua chay). */
+    private static final String[] CACHE_DIR_NAMES =
+            {"edge_cache", "vieneu_cache", "google_cache"};
+
+    /**
+     * Xoa sach cache ca 3 engine (goi khi doi sang phim khac).
+     * Chay duoc ca khi service chua mo (chi xoa file tren dia).
+     */
+    public static int clearAllCache(Context ctx) {
+        if (running != null) return clearCache();
+        int n = 0;
+        for (String name : CACHE_DIR_NAMES) {
+            java.io.File[] fs = new java.io.File(ctx.getCacheDir(), name)
+                    .listFiles();
+            if (fs == null) continue;
+            for (java.io.File f : fs) {
+                try {
+                    if (f != null && f.isFile() && f.delete()) n++;
+                } catch (Exception ignored) {}
+            }
+        }
+        return n;
+    }
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
             if (playing && duration > 0) {
@@ -232,6 +341,7 @@ public class TtsPlaybackService extends Service
                 updateNotif();
             }
             refreshFloatTime();
+            maybeTrimCache();
             handler.postDelayed(this, 100);
         }
     };
@@ -1095,7 +1205,7 @@ public class TtsPlaybackService extends Service
         if (running.edge != null) b += running.edge.cacheBytes();
         if (running.vn != null) b += running.vn.cacheBytes();
         long mb = b / (1024 * 1024);
-        return "Xoa cache (" + mb + "MB)";
+        return "Xoa cache (" + mb + "/1024MB)";
     }
 
     /** Xoa sach cache ca 3 engine. Tra ve so file da xoa. */
