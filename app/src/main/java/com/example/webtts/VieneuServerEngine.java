@@ -22,6 +22,12 @@ import java.util.concurrent.Executors;
  * Luu y server: CPU chi phuc vu 1-2 dong thoi nen preload it (10 cau)
  * tren 1 thread, tranh de hang doi 429. Enroll giong lam tren PC
  * (POST /v1/voices), app chi chon ten giong da co.
+ *
+ * Tu tiep suc (v1.18.6): vi moi luc chi 1 request HTTP bay duoc, cac job
+ * khac trong cua so bi bo qua; nen khi 1 cau xong/loi thi pumpNext() xep
+ * lai ca cua so tu cau neo. Nho vay khong con phu thuoc ticker 100ms cua
+ * service — bam Pause giua luc nap thi server van nap tiep cho du so cau
+ * da dat roi moi dung.
  */
 public class VieneuServerEngine extends EdgeVoiceEngine {
 
@@ -44,6 +50,8 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
     /** Cho nghi sau loi de khong de chet server (ms theo index). */
     private final Map<Integer, Long> errCool = new ConcurrentHashMap<>();
     private static final long ERR_COOL_MS = 30000;
+    /** Cau neo cua cua so preload hien tai (-1 = chua co). */
+    private volatile int pumpIndex = -1;
 
     public VieneuServerEngine(Context ctx, Listener listener) {
         super(ctx, listener, "vieneu_cache");
@@ -68,6 +76,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
         rawDur.clear();
         queued.clear();
         lastError = null;
+        pumpIndex = -1;
         stopPlayer();
         currentIndex = -1;
     }
@@ -87,6 +96,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
         rawDur.clear();
         queued.clear();
         lastError = null;
+        pumpIndex = -1;
         stopPlayer();
         currentIndex = -1;
     }
@@ -122,7 +132,15 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
     public void preloadFrom(int index) {
         List<SubtitleCue> s = subList();
         if (s.isEmpty() || index < 0) return;
-        int gen = generation.get();
+        pumpIndex = index;
+        enqueueWindow(index, generation.get());
+    }
+
+    /** Xep ca cua so preload tu 1 cau neo (bo qua cau da co / da xep). */
+    private void enqueueWindow(int index, int gen) {
+        List<SubtitleCue> s = subList();
+        if (s.isEmpty() || index < 0) return;
+        if (gen != generation.get()) return;
         int end = Math.min(s.size(), index + preloadCount + 1);
         for (int i = index; i < end; i++) {
             final int idx = i;
@@ -131,6 +149,19 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
             queued.put(qk, true);
             vnExec.execute(() -> fetchOne(idx, gen));
         }
+    }
+
+    /**
+     * Tu tiep suc: moi khi 1 cau xong/loi thi xep lai ca cua so tu cau neo,
+     * khong can ticker cua service. Cua so bi chan boi preloadCount nen nap
+     * du so cau da dat roi tu dung; gen doi (seek/doi giong/xoa cache) thi
+     * chuoi cu tu chet nen khong tai rac.
+     */
+    private void pumpNext(int gen) {
+        if (gen != generation.get()) return;
+        int anchor = pumpIndex;
+        if (anchor < 0) return;
+        enqueueWindow(anchor, gen);
     }
 
     /** Ban fetch() gon cho thread tuan tu (giong logic lop cha). */
@@ -170,7 +201,8 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                     f.delete();
                 }
             }
-            // Server 1 luong: dang co request khac thi bo qua, tick sau thu lai.
+            // Server 1 luong: dang co request khac thi bo qua job nay.
+            // Ca cua so se duoc pumpNext() xep lai khi request kia xong.
             if (!inflight.compareAndSet(false, true)) {
                 queued.remove(gen + ":" + index);
                 return;
@@ -182,9 +214,12 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                 throw e;
             }
         } catch (Exception e) {
+            // Loi dong bo (hiem): nghi 30s cho cau nay roi tiep tuc cua so.
+            errCool.put(index, android.os.SystemClock.elapsedRealtime());
             queued.remove(gen + ":" + index);
             lastError = e.getMessage();
             if (listener != null) listener.onError(index, e.getMessage());
+            pumpNext(gen);
         }
     }
 
@@ -230,6 +265,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                 } finally {
                     inflight.set(false);
                     queued.remove(gen + ":" + index);
+                    pumpNext(gen);
                 }
             }
             @Override public void onError(String msg) {
@@ -240,6 +276,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
                 } finally {
                     inflight.set(false);
                     queued.remove(gen + ":" + index);
+                    pumpNext(gen);
                 }
             }
         });
@@ -259,6 +296,7 @@ public class VieneuServerEngine extends EdgeVoiceEngine {
     @Override
     public void setSubtitles(List<SubtitleCue> s) {
         lastSubs = s == null ? java.util.Collections.emptyList() : s;
+        pumpIndex = -1;
         super.setSubtitles(s);
     }
 

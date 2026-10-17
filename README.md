@@ -46,6 +46,9 @@ Nut noi gon: cau + gio + Play/⏮/⏭ + nut ⋯ mo them.
 
 ## Giong doc
 
+- **Tu nap khi load sub**: vua chon sub xong la app tu xep cua so preload
+  cho giong dang chon (khong can bam Play truoc). Bam **Pause** giua luc
+  nap thi may/PC van nap tiep cho du so cau da dat roi moi dung.
 - **Google (offline)**: khong can mang. Mac dinh render truoc wav +
   preload chung so cau voi Vieneu (nut Preload); nut **Google: Render
   truoc / Truc tiep** de doi sang doc live kieu cu (khong sinh cache).
@@ -59,7 +62,8 @@ Nut noi gon: cau + gio + Play/⏮/⏭ + nut ⋯ mo them.
   sach giong tu server (25 preset + giong clone nhu "Clone") → chon.
   Bam **Server Vieneu (PC)** de nhap dia chi server
   (vd `http://192.168.1.10:8000`) + API key (neu co). Preload 10 cau,
-  cache wav rieng. Khong can mang Internet, chi can LAN nha.
+  cache wav rieng, tu tiep suc (nap du cau da dat roi tu dung ke ca khi
+  bam Pause). Khong can mang Internet, chi can LAN nha.
   Nut **Xoa cache (N MB)** de don.
 
 ## Nho phim + hen gio + tu dung khi co cuoc goi

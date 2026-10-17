@@ -76,6 +76,31 @@ public class TtsPlaybackService extends Service
         if (running != null) running.applyShared();
         // Nap sub moi: moc gio ve 00:00 + dung doc + chot moc moi.
         if (running != null) running.resetToStart();
+        // Nap truoc ngay khi vua load SRT (khong can bam Play truoc).
+        if (running != null) running.autoPreloadOnLoad();
+    }
+
+    /**
+     * Nap truoc ngay khi vua load SRT: xep cua so preload cho engine dang
+     * chon de bam Play la co san, khong phai cho.
+     * - Google live: doc truc tiep, khong cache -> bo qua.
+     * - Google file: phai doi TTS san sang (onInit) moi synth duoc.
+     * - Vieneu PC: phai da nhap dia chi server.
+     */
+    private void autoPreloadOnLoad() {
+        if (sharedSubs.isEmpty() || !isMp3Voice(voice)) return;
+        if (voice == VOICE_GOOGLE) {
+            if (ggLive || !ttsReady) return;
+            if (gov != null) gov.preloadFrom(0);
+            return;
+        }
+        if (voice == VOICE_VIENEUPC) {
+            if (vieneuUrl == null || vieneuUrl.isEmpty()) return;
+            if (vn != null) vn.preloadFrom(0);
+            return;
+        }
+        EdgeVoiceEngine mp3 = mp3();
+        if (mp3 != null) mp3.preloadFrom(0);
     }
 
     /** Nap sub moi -> ve 00:00, dung doc, san sang Play tu dau. */
@@ -334,6 +359,8 @@ public class TtsPlaybackService extends Service
         gov.setTtsVolume(ttsVol);
         gov.setPreloadCount(preloadVn);
         gov.setTtsVoiceName(gvoiceName);
+        // Sub da co san (mo lai app sau khi kill): nap truoc luon.
+        autoPreloadOnLoad();
         handler.post(ticker);
     }
 
@@ -403,6 +430,8 @@ public class TtsPlaybackService extends Service
             applySplitAudio();
             recomputeDuration();
             updateNotif();
+            // TTS vua san sang -> nap truoc neu dang chon giong Google file.
+            autoPreloadOnLoad();
         } else if (!ttsEngine.isEmpty()) {
             // Engine da chon loi (vd bi go cai) -> roi ve mac dinh he thong.
             ttsEngine = "";
